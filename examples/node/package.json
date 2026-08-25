@@ -1,0 +1,7 @@
+{
+  "name": "depthfirst-buildkit-example",
+  "private": true,
+  "dependencies": {
+    "is-number": "7.0.0"
+  }
+}

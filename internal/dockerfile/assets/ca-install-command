@@ -1,0 +1,1 @@
+RUN --mount=type=bind,from=depthfirst_assets,source=/install-ca,target=/run/depthfirst/install-ca,ro --mount=type=secret,id=DF_FIREWALL_CA,target=/run/secrets/DF_FIREWALL_CA,required=true /bin/sh /run/depthfirst/install-ca
