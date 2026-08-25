@@ -63,18 +63,29 @@ For each Linux stage the frontend can:
 - point these clients at Device Firewall registries for that `RUN`
 - keep the API key and generated client config off image layers by writing them on a per-`RUN` tmpfs
 
-| Ecosystem | Clients | Firewall route |
-| --- | --- | --- |
-| JavaScript | npm, pnpm, Yarn Classic, Yarn npm client | `/npm/` |
-| Python | pip, uv, Poetry credentials | `/pypi/simple/` |
-| Go | `go` module commands | `/go` |
-| Ruby | `gem`, Bundler | `/rubygems` |
+| Client | Automatic | Route | Auth | Notes |
+| --- | --- | --- | --- | --- |
+| npm | Yes | `/npm/` | npmrc `_authToken` | `NPM_CONFIG_REGISTRY` overrides project `.npmrc` registry. Other npmrc keys are merged. |
+| pnpm | Yes | `/npm/` | same npmrc | Uses npm config and `NPM_CONFIG_*`. |
+| Yarn Classic | Yes | `/npm/` | same npmrc | Yarn v1 reads npmrc. |
+| Yarn Berry | Yes | `/npm/` | `YARN_NPM_AUTH_TOKEN` | `npm:` protocol only. `git:`, `github:`, `patch:`, and `portal:` are unchanged. |
+| pip | Yes | `/pypi/simple/` | URL token | `PIP_INDEX_URL`. Extra-index URLs in pip.conf are not rewritten. |
+| uv | Yes | `/pypi/simple/` | URL token | `UV_DEFAULT_INDEX` and `UV_INDEX_URL`. |
+| Poetry | Partial | `/pypi/simple/` | HTTP basic for source `firewall` | Mark a source named `firewall` primary in `pyproject.toml`. Poetry has no env var that replaces the package source URL. |
+| Go modules | Yes | `/go` | URL token | `GOPROXY`. `GOSUMDB=off` for that `RUN`. |
+| gem | Yes | `/rubygems` | URL token | `GEMRC` lists the firewall source for that `RUN`. |
+| Bundler | Yes | `/rubygems` | `BUNDLE_FIREWALL__DEPTHFIRST__COM` | Mirrors `https://rubygems.org` only. Other Gemfile sources are unchanged. |
+| Cargo | No | | | Not configured. |
+| Maven / Gradle | No | | | Not configured. |
+| NuGet | No | | | Not configured. |
+| Composer | No | | | Not configured. |
+| Bun | No | | | Not configured. |
+| Pipenv | No | | | Not configured. If Pipenv invokes pip, `PIP_INDEX_URL` still applies. |
+| Conda | No | | | Not configured. |
 
-Existing user-level npmrc, Bundler config, `NODE_EXTRA_CA_CERTS`, and `SSL_CERT_FILE` are merged rather than replaced. Project `.npmrc` is left in place; `NPM_CONFIG_REGISTRY` still forces the firewall registry.
+Existing user-level npmrc, Bundler config, `NODE_EXTRA_CA_CERTS`, and `SSL_CERT_FILE` are merged rather than replaced.
 
-Bundler mirrors `https://rubygems.org` to the firewall. Poetry still needs a source named `firewall` marked primary in `pyproject.toml`.
-
-`RUN --network=none` is unchanged.
+`RUN --network=none` is unchanged. Local Device Firewall builds without `DF_FIREWALL_API_KEY` rely on the device daemon to rewrite registry traffic; the rows above describe CI auto-configuration when the API key secret is present.
 
 ## Supported Dockerfiles
 
