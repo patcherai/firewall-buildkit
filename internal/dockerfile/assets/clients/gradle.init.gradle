@@ -1,0 +1,71 @@
+import org.gradle.api.artifacts.repositories.MavenArtifactRepository
+import org.gradle.authentication.http.BasicAuthentication
+
+def replaced = new IdentityHashMap()
+// Match exact public repository origins and paths, never private repositories.
+def protect = { repo ->
+    if (!(repo instanceof MavenArtifactRepository)) return
+    def url = repo.url
+    if (url == null) return
+    def path = url.path.replaceAll('/+$', '')
+    def route = null
+    if (url.scheme in ['http', 'https'] && url.port == -1) {
+        if (url.host in ['repo.maven.apache.org', 'repo1.maven.org'] && path == '/maven2') route = 'mavenCentral'
+        if (url.host == 'jitpack.io' && path == '') route = 'jitpack'
+    }
+    if (route == null) {
+        if (replaced.containsKey(repo) && url.toString() != replaced[repo].url) {
+            // Build scripts may change a repository after our callback. Never
+            // carry firewall credentials along to its new destination.
+            def previous = replaced.remove(repo)
+            if (repo.credentials.username == '__token__' && repo.credentials.password == System.getenv('DF_FIREWALL_API_KEY')) {
+                repo.credentials {
+                    username = previous.username
+                    password = previous.password
+                }
+                repo.authentication.clear()
+                previous.authentication.each { repo.authentication.add(it) }
+            }
+        }
+        return
+    }
+    if (!replaced.containsKey(repo)) {
+        replaced[repo] = [username: repo.credentials.username, password: repo.credentials.password,
+                          authentication: repo.authentication.toList(),
+                          url: "https://firewall.depthfirst.com/${route}".toString()]
+    }
+    repo.url = "https://firewall.depthfirst.com/${route}"
+    repo.credentials {
+        username = '__token__'
+        password = System.getenv('DF_FIREWALL_API_KEY')
+    }
+    repo.authentication { basic(BasicAuthentication) }
+}
+
+// Register before evaluation and revisit afterwards because a newly added
+// repository may not yet have its URL when the collection callback fires.
+def watch = { repositories ->
+    repositories.all(protect)
+}
+gradle.beforeSettings { settings ->
+    watch(settings.pluginManagement.repositories)
+    watch(settings.dependencyResolutionManagement.repositories)
+}
+gradle.settingsEvaluated { settings ->
+    settings.pluginManagement.repositories.each(protect)
+    settings.dependencyResolutionManagement.repositories.each(protect)
+}
+gradle.beforeProject { project ->
+    watch(project.repositories)
+    watch(project.buildscript.repositories)
+    project.buildscript.configurations.configureEach {
+        incoming.beforeResolve { project.buildscript.repositories.each(protect) }
+    }
+    project.configurations.configureEach {
+        incoming.beforeResolve { project.repositories.each(protect) }
+    }
+}
+gradle.afterProject { project ->
+    project.repositories.each(protect)
+    project.buildscript.repositories.each(protect)
+}

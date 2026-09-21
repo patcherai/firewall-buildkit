@@ -12,6 +12,9 @@ if [ -n "$_df_node_ca" ]; then
   else
     export NODE_EXTRA_CA_CERTS="$_df_node_ca"
   fi
+  if [ -n "${JAVA_HOME:-}" ] && [ -x "$JAVA_HOME/bin/keytool" ]; then
+    . /run/depthfirst/clients/java-ca.sh
+  fi
 fi
 unset _df_node_ca
 if [ -f /etc/ssl/certs/ca-certificates.crt ]; then
@@ -36,5 +39,9 @@ if [ -n "$_df_ca_bundle" ]; then
   export CURL_CA_BUNDLE="$_df_ca_bundle"
   export BUNDLE_SSL_CA_CERT="$_df_ca_bundle"
   export GIT_SSL_CAINFO="$_df_ca_bundle"
+  export CARGO_HTTP_CAINFO="$_df_ca_bundle"
+  export CARGO_HTTP_PROXY_CAINFO="$_df_ca_bundle"
+  export COMPOSER_CAFILE="$_df_ca_bundle"
+  export CONDA_SSL_VERIFY="$_df_ca_bundle"
 fi
 unset _df_ca_bundle

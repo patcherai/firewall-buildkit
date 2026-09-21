@@ -66,3 +66,53 @@ jobs:
           gh api --method PATCH \
             "/orgs/${{ github.repository_owner }}/packages/container/firewall-buildkit" \
             -f visibility=public
+
+  clients:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - client: bun
+            image: oven/bun:1.3.14@sha256:e10577f0db68676a7024391c6e5cb4b879ebd17188ab750cf10024a6d700e5c4
+            binary: DEPTHFIRST_TEST_BUN=/usr/local/bin/bun
+            java-home: ""
+          - client: cargo
+            image: rust:1.96.0-bookworm@sha256:5e2214abe154fe26e39f64488952e5c991eeed1d6d6da7cc8381ae83927f0cfc
+            binary: DEPTHFIRST_TEST_CARGO=/usr/local/cargo/bin/cargo
+            java-home: ""
+          - client: maven
+            image: maven:3.9-eclipse-temurin-21@sha256:c2a2c58516d160f43b50f12baa427ca86989e0bc942609e04aff61da5d9a7d74
+            binary: DEPTHFIRST_TEST_MVN=/usr/share/maven/bin/mvn
+            java-home: /opt/java/openjdk
+          - client: gradle
+            image: gradle:8-jdk21@sha256:5c4c0c4284de4a19951e82ac78f86dbcda2e136644bbfe159beba7ea3420cc80
+            binary: DEPTHFIRST_TEST_GRADLE=/opt/gradle/bin/gradle
+            java-home: /opt/java/openjdk
+          - client: pipenv
+            image: python:3.13-slim@sha256:8d9d0b8bcf6506481eae4907c18f5e3e7902e629f5f6d684f9e7c32e85e3ddf0
+            binary: DEPTHFIRST_TEST_PIPENV=/usr/local/bin/pipenv
+            java-home: ""
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      - run: CGO_ENABLED=0 go test -c -o "$RUNNER_TEMP/clients.test" ./internal/dockerfile
+      - name: Check real client routing and authentication
+        env:
+          CLIENT_IMAGE: ${{ matrix.image }}
+          CLIENT_BINARY: ${{ matrix.binary }}
+          CLIENT_JAVA_HOME: ${{ matrix.java-home }}
+        run: |
+          docker run --rm --entrypoint /bin/sh \
+            -v "$RUNNER_TEMP/clients.test:/tests:ro" \
+            -e "$CLIENT_BINARY" \
+            -e "DEPTHFIRST_TEST_JAVA_HOME=$CLIENT_JAVA_HOME" \
+            "$CLIENT_IMAGE" -ec '
+              if [ -n "${DEPTHFIRST_TEST_PIPENV:-}" ]; then
+                pip install --disable-pip-version-check pipenv==2026.8.0
+              fi
+              exec /tests -test.run "TestRealPackageManagersUseAuthenticatedRegistry|TestJavaTrustStore" -test.v
+            '

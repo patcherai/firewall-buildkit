@@ -1,1 +1,1 @@
---mount=type=tmpfs,target=/run/depthfirst --mount=type=bind,from=depthfirst_assets,source=/npmrc,target=/run/depthfirst/firewall.npmrc,ro --mount=type=secret,id=DF_FIREWALL_API_KEY,env=DF_FIREWALL_API_KEY,required=
+--mount=type=tmpfs,target=/run/depthfirst --mount=type=bind,from=depthfirst_assets,source=/npmrc,target=/run/depthfirst/firewall.npmrc,ro --mount=type=bind,from=depthfirst_assets,source=/clients,target=/run/depthfirst/clients,ro --mount=type=secret,id=DF_FIREWALL_API_KEY,env=DF_FIREWALL_API_KEY,required=
