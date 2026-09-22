@@ -16,6 +16,17 @@ if [ -n "${DF_FIREWALL_API_KEY:-}" ]; then
   export NPM_CONFIG_REGISTRY=https://firewall.depthfirst.com/npm/
   export NPM_CONFIG_ALWAYS_AUTH=true
   export NPM_CONFIG_USERCONFIG="$_df_npmrc"
+  export BUN_CONFIG_REGISTRY="https://__token__:${DF_FIREWALL_API_KEY}@firewall.depthfirst.com/npm/"
+  export BUN_CONFIG_TOKEN="$DF_FIREWALL_API_KEY"
+  export CARGO_REGISTRIES_DEPTHFIRST_TOKEN="$DF_FIREWALL_API_KEY"
+  if command -v cargo >/dev/null 2>&1; then
+    export DEPTHFIRST_CARGO="$(command -v cargo)"
+    mkdir -p /run/depthfirst/bin || exit $?
+    printf '%s\n' '[source.crates-io]' 'replace-with = "depthfirst"' '[source.depthfirst]' 'registry = "sparse+https://firewall.depthfirst.com/cratesio/"' '[registries.depthfirst]' 'index = "sparse+https://firewall.depthfirst.com/cratesio/"' 'credential-provider = "cargo:token"' > /run/depthfirst/cargo.toml || exit $?
+    printf '%s\n' '#!/bin/sh' 'case "${1:-}" in' '  +*) toolchain=$1; shift; exec "$DEPTHFIRST_CARGO" "$toolchain" --config /run/depthfirst/cargo.toml "$@" ;;' '  *) exec "$DEPTHFIRST_CARGO" --config /run/depthfirst/cargo.toml "$@" ;;' 'esac' > /run/depthfirst/bin/cargo || exit $?
+    chmod 755 /run/depthfirst/bin/cargo || exit $?
+    export PATH="/run/depthfirst/bin:$PATH"
+  fi
   export YARN_NPM_REGISTRY_SERVER=https://firewall.depthfirst.com/npm/
   export YARN_NPM_AUTH_TOKEN="$DF_FIREWALL_API_KEY"
   export PIP_INDEX_URL="https://__token__:${DF_FIREWALL_API_KEY}@firewall.depthfirst.com/pypi/simple/"
@@ -43,4 +54,5 @@ if [ -n "${DF_FIREWALL_API_KEY:-}" ]; then
     bundle config set --global mirror.https://rubygems.org https://firewall.depthfirst.com/rubygems >/dev/null || exit $?
   fi
   unset _df_npmrc _df_userconfig _df_bundle _df_existing_bundle
+  . /run/depthfirst/clients/setup.sh
 fi

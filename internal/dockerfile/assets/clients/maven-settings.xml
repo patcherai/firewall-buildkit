@@ -1,0 +1,26 @@
+<settings xmlns="http://maven.apache.org/SETTINGS/1.2.0">
+  <mirrors>
+    <mirror>
+      <id>depthfirst-central</id>
+      <mirrorOf>central</mirrorOf>
+      <url>https://firewall.depthfirst.com/mavenCentral</url>
+    </mirror>
+    <mirror>
+      <id>depthfirst-jitpack</id>
+      <mirrorOf>jitpack,jitpack.io</mirrorOf>
+      <url>https://firewall.depthfirst.com/jitpack</url>
+    </mirror>
+  </mirrors>
+  <servers>
+    <server>
+      <id>depthfirst-central</id>
+      <username>__token__</username>
+      <password>${env.DF_FIREWALL_API_KEY}</password>
+    </server>
+    <server>
+      <id>depthfirst-jitpack</id>
+      <username>__token__</username>
+      <password>${env.DF_FIREWALL_API_KEY}</password>
+    </server>
+  </servers>
+</settings>

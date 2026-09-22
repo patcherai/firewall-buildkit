@@ -1,7 +1,7 @@
 package dockerfile
 
 import (
-	_ "embed"
+	"embed"
 	"strings"
 )
 
@@ -22,6 +22,27 @@ var caInstallCommandFile string
 
 //go:embed assets/run-mount-prefix
 var runMountPrefixFile string
+
+//go:embed assets/clients/*
+var clientAssets embed.FS
+
+func clientAssetStage() string {
+	entries, err := clientAssets.ReadDir("assets/clients")
+	if err != nil {
+		panic(err)
+	}
+	var out strings.Builder
+	for _, entry := range entries {
+		data, err := clientAssets.ReadFile("assets/clients/" + entry.Name())
+		if err != nil {
+			panic(err)
+		}
+		out.WriteString("COPY <<'DEPTHFIRST_CLIENT' /clients/" + entry.Name() + "\n")
+		out.Write(data)
+		out.WriteString("\nDEPTHFIRST_CLIENT\n")
+	}
+	return out.String()
+}
 
 func oneLinePrefix(s string) string {
 	var parts []string
@@ -72,5 +93,5 @@ var (
 		"DEPTHFIRST_CA_INSTALLER\n" +
 		"COPY <<'DEPTHFIRST_NPMRC' /npmrc\n" +
 		strings.TrimSuffix(npmrc, "\n") + "\n" +
-		"DEPTHFIRST_NPMRC\n"
+		"DEPTHFIRST_NPMRC\n" + clientAssetStage()
 )

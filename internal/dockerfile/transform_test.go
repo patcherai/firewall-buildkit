@@ -120,6 +120,8 @@ func TestTransformConfiguresSupportedPackageManagersEphemerally(t *testing.T) {
 		"target=/run/depthfirst/firewall.npmrc",
 		"NPM_CONFIG_REGISTRY=https://firewall.depthfirst.com/npm/",
 		"NPM_CONFIG_ALWAYS_AUTH=true",
+		"BUN_CONFIG_REGISTRY=",
+		"CARGO_REGISTRIES_DEPTHFIRST_TOKEN=",
 		`PIP_INDEX_URL="https://__token__:${DF_FIREWALL_API_KEY}@firewall.depthfirst.com/pypi/simple/"`,
 		`UV_DEFAULT_INDEX="https://__token__:${DF_FIREWALL_API_KEY}@firewall.depthfirst.com/pypi/simple/"`,
 		`POETRY_HTTP_BASIC_FIREWALL_PASSWORD="$DF_FIREWALL_API_KEY"`,
@@ -149,6 +151,10 @@ func TestTransformExposesInstalledCABundleToLanguageClients(t *testing.T) {
 		"SSL_CERT_FILE=",
 		"PIP_CERT=",
 		"BUNDLE_SSL_CA_CERT=",
+		"CARGO_HTTP_CAINFO=",
+		"CARGO_HTTP_PROXY_CAINFO=",
+		"COMPOSER_CAFILE=",
+		"CONDA_SSL_VERIFY=",
 		"NODE_EXTRA_CA_CERTS=",
 	} {
 		if !strings.Contains(text, want) {
@@ -391,10 +397,38 @@ func TestRunPrefixesAreValidShell(t *testing.T) {
 			t.Fatalf("prefix is not valid shell: %v\n%s\n%s", err, output, prefix)
 		}
 	}
+	for _, name := range []string{"setup.sh", "java-ca.sh"} {
+		script, err := clientAssets.ReadFile("assets/clients/" + name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		cmd := exec.Command("/bin/sh", "-n")
+		cmd.Stdin = bytes.NewReader(script)
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("%s: %v: %s", name, err, output)
+		}
+	}
 }
 
 func writeFirewallNpmrc(t *testing.T, dir string) {
 	t.Helper()
+	if err := os.MkdirAll(filepath.Join(dir, "clients"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	entries, err := clientAssets.ReadDir("assets/clients")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		data, err := clientAssets.ReadFile("assets/clients/" + entry.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		data = []byte(strings.ReplaceAll(string(data), "/run/depthfirst", dir))
+		if err := os.WriteFile(filepath.Join(dir, "clients", entry.Name()), data, 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
 	if err := os.WriteFile(filepath.Join(dir, "firewall.npmrc"), []byte(npmrc), 0o600); err != nil {
 		t.Fatal(err)
 	}
