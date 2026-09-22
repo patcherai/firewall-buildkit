@@ -253,7 +253,7 @@ func TestRealPackageManagersUseAuthenticatedRegistry(t *testing.T) {
 				"pom.xml":           `<project><modelVersion>4.0.0</modelVersion><groupId>test</groupId><artifactId>probe</artifactId><version>1.0</version></project>`,
 				"settings.gradle":   `rootProject.name = 'probe'`,
 				"gradle.properties": "org.gradle.configuration-cache=true\n",
-				"build.gradle":      `plugins { id 'java' }; repositories { mavenCentral() }; dependencies { implementation 'test:depthfirst-probe:1.0' }; def changedRepo = repositories.mavenCentral(); changedRepo.url = 'https://private.invalid/maven'; changedRepo.content { excludeGroupByRegex '.*' }; tasks.register('resolveProbe') { doLast { assert changedRepo.credentials.password != System.getenv('DF_FIREWALL_API_KEY'); configurations.runtimeClasspath.files } }`,
+				"build.gradle":      gradleRegistryProbe,
 				"Pipfile":           "[[source]]\nurl = \"https://pypi.org/simple\"\nverify_ssl = true\nname = \"pypi\"\n[packages]\ndepthfirst-probe = \"==1.0.0\"\n",
 			}
 			if err := os.Mkdir(filepath.Join(temp, "src"), 0700); err != nil {
@@ -286,7 +286,7 @@ func TestRealPackageManagersUseAuthenticatedRegistry(t *testing.T) {
 			if rustupHome == "" {
 				rustupHome = filepath.Join(os.Getenv("HOME"), ".rustup")
 			}
-			cmd.Env = []string{"HOME=" + temp, "CARGO_HOME=" + temp + "/cargo-home", "RUSTUP_HOME=" + rustupHome, "PATH=" + bin + ":" + filepath.Dir(binary) + ":/usr/bin:/bin", "DF_FIREWALL_API_KEY=test-token", "CARGO_NET_RETRY=0", "JAVA_HOME=" + os.Getenv("JAVA_HOME"), "PIPENV_NOSPIN=1", "PIPENV_VENV_IN_PROJECT=1"}
+			cmd.Env = []string{"HOME=" + temp, "CARGO_HOME=" + temp + "/cargo-home", "RUSTUP_HOME=" + rustupHome, "PATH=" + bin + ":" + filepath.Dir(binary) + ":/usr/bin:/bin", "DF_FIREWALL_API_KEY=test-token", "CARGO_NET_RETRY=0", "JAVA_HOME=" + os.Getenv("JAVA_HOME"), "DEPTHFIRST_TEST_REGISTRY=" + server.URL, "PIPENV_NOSPIN=1", "PIPENV_VENV_IN_PROJECT=1"}
 			out, err := cmd.CombinedOutput()
 			if ctx.Err() != nil {
 				t.Fatalf("client timed out: %s", out)
@@ -308,3 +308,60 @@ func TestRealPackageManagersUseAuthenticatedRegistry(t *testing.T) {
 		})
 	}
 }
+
+// Exercise actual Gradle repository objects before any dependency resolution so
+// a routing regression fails locally instead of contacting the public registry.
+const gradleRegistryProbe = `
+plugins { id 'java' }
+repositories { maven { url = 'https://repo.maven.apache.org:443/maven2' } }
+dependencies { implementation 'test:depthfirst-probe:1.0' }
+def changedRepo = repositories.mavenCentral()
+changedRepo.url = 'https://private.invalid/maven'
+changedRepo.content { excludeGroupByRegex '.*' }
+
+def probes = []
+[
+    ['repo.maven.apache.org', '/maven2', 'mavenCentral'],
+    ['repo1.maven.org', '/maven2', 'mavenCentral'],
+    ['jitpack.io', '', 'jitpack']
+].each { host, path, route ->
+    ['http', 'https'].each { scheme ->
+        def defaultPort = scheme == 'https' ? 443 : 80
+        [-1, defaultPort, 8443, scheme == 'https' ? 80 : 443].each { port ->
+            def original = "${scheme}://${host}${port == -1 ? '' : ':' + port}${path}/".toString()
+            def expected = port == -1 || port == defaultPort ?
+                System.getenv('DEPTHFIRST_TEST_REGISTRY') + '/' + route : original
+            def repo = repositories.maven {
+                url = original
+                content { excludeGroupByRegex '.*' }
+            }
+            probes << [repo, expected, expected != original]
+        }
+    }
+}
+['https://private.invalid:443/maven2', 'https://repo.maven.apache.org:443/private'].each { original ->
+    def repo = repositories.maven {
+        url = original
+        content { excludeGroupByRegex '.*' }
+    }
+    probes << [repo, original, false]
+}
+tasks.register('resolveProbe') {
+    doLast {
+        assert changedRepo.credentials.password != System.getenv('DF_FIREWALL_API_KEY')
+        probes.each { repo, expected, protectedRepo ->
+            assert repo.url.toString() == expected : "Unexpected route for ${repo.name}: ${repo.url}, expected ${expected}"
+            if (protectedRepo) {
+                assert repo.credentials.username == '__token__'
+                assert repo.credentials.password == System.getenv('DF_FIREWALL_API_KEY')
+            } else {
+                assert repo.credentials.password != System.getenv('DF_FIREWALL_API_KEY')
+            }
+            // These repositories test configuration only. Keep resolution on
+            // the primary explicit-default-port repository and local server.
+            repositories.remove(repo)
+        }
+        configurations.runtimeClasspath.files
+    }
+}
+`

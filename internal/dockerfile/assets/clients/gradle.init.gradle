@@ -9,7 +9,9 @@ def protect = { repo ->
     if (url == null) return
     def path = url.path.replaceAll('/+$', '')
     def route = null
-    if (url.scheme in ['http', 'https'] && url.port == -1) {
+    def defaultPort = (url.scheme == 'http' && url.port == 80) ||
+                      (url.scheme == 'https' && url.port == 443)
+    if (url.scheme in ['http', 'https'] && (url.port == -1 || defaultPort)) {
         if (url.host in ['repo.maven.apache.org', 'repo1.maven.org'] && path == '/maven2') route = 'mavenCentral'
         if (url.host == 'jitpack.io' && path == '') route = 'jitpack'
     }
