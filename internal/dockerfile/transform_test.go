@@ -36,6 +36,30 @@ func TestTransformProtectsEveryStageAndRun(t *testing.T) {
 	}
 }
 
+func TestTransformInstallsCAOnlyInStagesWithProtectedRun(t *testing.T) {
+	source := []byte(strings.Join([]string{
+		"FROM golang AS build",
+		"USER builder",
+		"RUN go build -o /app .",
+		"FROM alpine AS offline",
+		"RUN --network=none true",
+		"FROM scratch",
+		"COPY --from=build /app /app",
+		"",
+	}, "\n"))
+	got, err := Transform(source, "Dockerfile", Options{CAFingerprint: strings.Repeat("c", 64)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := string(got)
+	if count := strings.Count(text, caInstallCommand); count != 1 {
+		t.Fatalf("CA install count = %d, want 1\n%s", count, text)
+	}
+	if !strings.Contains(text, "FROM golang AS build\n"+caInstallCommand) {
+		t.Fatalf("CA install must directly follow FROM, before USER\n%s", text)
+	}
+}
+
 func TestTransformRewritesSyntaxDirective(t *testing.T) {
 	source := []byte("# syntax=depthfirst-buildkit:dev\n# escape=`\nFROM alpine\nRUN echo hi\n")
 	got, err := Transform(source, "Dockerfile", Options{})
@@ -69,6 +93,35 @@ func TestTransformPreservesRunOptions(t *testing.T) {
 	}
 	if !strings.Contains(text, "RUN --network=none echo offline") {
 		t.Fatalf("network-none RUN was changed\n%s", text)
+	}
+}
+
+func TestTransformUsesParsedNetworkFlag(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		flags   string
+		offline bool
+	}{
+		{"unquoted none", "--network=none", true},
+		{"double-quoted none", `--network="none"`, true},
+		{"single-quoted none", "--network='none'", true},
+		{"cache ID containing network option", "--mount=type=cache,id=cache--network=none,target=/cache", false},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			line := "RUN " + test.flags + " echo hello"
+			got, err := Transform([]byte("FROM alpine\n"+line+"\n"), "Dockerfile", Options{CAFingerprint: strings.Repeat("d", 64)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			text := string(got)
+			if test.offline {
+				if !strings.Contains(text, line+"\n") || strings.Contains(text, caInstallCommand) || strings.Contains(text, "id=DF_FIREWALL_API_KEY") {
+					t.Fatalf("offline RUN must remain unchanged and need no CA installation or API key mount\n%s", text)
+				}
+			} else if !strings.Contains(text, caInstallCommand) || !strings.Contains(text, "RUN "+test.flags+" "+runMountPrefix) {
+				t.Fatalf("network-enabled RUN must keep its flags and receive CA installation and setup\n%s", text)
+			}
+		})
 	}
 }
 
@@ -381,6 +434,51 @@ func TestCARunPrefixKeepsExistingNodeExtraCAs(t *testing.T) {
 	text := string(output)
 	if !strings.Contains(text, "EXISTING_CA") || !strings.Contains(text, "FIREWALL_CA") {
 		t.Fatalf("NODE_EXTRA_CA_CERTS lost an existing CA\n%s", text)
+	}
+}
+
+func TestInstallCAWithoutTrustStoreKeepsCAForNode(t *testing.T) {
+	temp := t.TempDir()
+	cert := filepath.Join(temp, "ca.crt")
+	if err := os.WriteFile(cert, []byte("FIREWALL_CA\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(temp, "bin")
+	if err := os.Mkdir(bin, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// Only the tools a slim image has: no update-ca-certificates, no update-ca-trust.
+	for _, tool := range []string{"cat", "chmod", "cp", "mkdir", "sha256sum"} {
+		target, err := exec.LookPath(tool)
+		if err != nil {
+			t.Skipf("%s is not installed", tool)
+		}
+		if err := os.Symlink(target, filepath.Join(bin, tool)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(bin, "id"), []byte("#!/bin/sh\necho 0\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	digest, err := exec.Command("sha256sum", cert).Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	script := strings.ReplaceAll(installCAScript, "/run/secrets/DF_FIREWALL_CA", cert)
+	script = strings.ReplaceAll(script, "/usr/local/share", filepath.Join(temp, "usr-local-share"))
+	script = strings.ReplaceAll(script, "/etc/", filepath.Join(temp, "etc")+"/")
+	cmd := exec.Command("/bin/sh", "-c", script, "install-ca", strings.Fields(string(digest))[0])
+	cmd.Env = []string{"PATH=" + bin}
+	if output, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("install-ca failed without a trust store: %v\n%s", err, output)
+	}
+	installed, err := os.ReadFile(filepath.Join(temp, "usr-local-share", "ca-certificates", "depthfirst-firewall.crt"))
+	if err != nil {
+		t.Fatalf("CA was not installed where the RUN prefix exposes it to Node: %v", err)
+	}
+	if string(installed) != "FIREWALL_CA\n" {
+		t.Fatalf("installed CA = %q", installed)
 	}
 }
 

@@ -23,6 +23,25 @@ jobs:
       - run: go test ./...
       - run: CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath ./cmd/frontend
 
+  integration:
+    needs: test
+    runs-on: ubuntu-latest
+    services:
+      registry:
+        image: registry:2
+        ports: ['5000:5000']
+    env:
+      DF_INTEGRATION_FRONTEND: localhost:5000/firewall-buildkit:${{ github.sha }}
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      # BuildKit resolves `# syntax=` images from a registry, not the local image store.
+      - run: docker build -t "$DF_INTEGRATION_FRONTEND" . && docker push "$DF_INTEGRATION_FRONTEND"
+      - run: go test -tags integration -count=1 -timeout 30m -v ./integration
+
   image:
     needs: test
     runs-on: ubuntu-latest
