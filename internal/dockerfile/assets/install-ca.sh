@@ -47,6 +47,12 @@ elif [ -f /etc/ssl/cert.pem ]; then
   cp "$cert" /usr/local/share/ca-certificates/depthfirst-firewall.crt
   chmod 0644 /usr/local/share/ca-certificates/depthfirst-firewall.crt
   cat "$cert" >> /etc/ssl/cert.pem
+elif [ -f /etc/debian_version ]; then
+  # Slim Debian images may have neither ca-certificates nor a trust bundle yet.
+  mkdir -p /usr/local/share/ca-certificates /etc/ssl/certs
+  cp "$cert" /usr/local/share/ca-certificates/depthfirst-firewall.crt
+  cp "$cert" /etc/ssl/certs/ca-certificates.crt
+  chmod 0644 /usr/local/share/ca-certificates/depthfirst-firewall.crt /etc/ssl/certs/ca-certificates.crt
 else
   echo "depthfirst: unsupported CA store; install ca-certificates in the base image" >&2
   exit 1
