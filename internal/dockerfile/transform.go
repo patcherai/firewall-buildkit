@@ -65,6 +65,7 @@ func Transform(source []byte, filename string, options Options) ([]byte, error) 
 	out = append(out, rewritePreamble(lines[:firstFromLine])...)
 	out = append(out, strings.TrimSuffix(assetStage, "\n"))
 
+	needsCA := stagesWithProtectedRun(parsed.AST.Children)
 	lineIndex := firstFromLine
 	for _, node := range parsed.AST.Children {
 		start := node.StartLine - 1
@@ -76,11 +77,11 @@ func Transform(source []byte, filename string, options Options) ([]byte, error) 
 		switch strings.ToUpper(node.Value) {
 		case "FROM":
 			out = append(out, lines[start:end]...)
-			if options.CAFingerprint != "" {
+			if options.CAFingerprint != "" && needsCA[node] {
 				out = append(out, caInstallCommand+" "+options.CAFingerprint)
 			}
 		case "RUN":
-			transformed, err := transformRun(node.Original, filename, options)
+			transformed, err := transformRun(node, filename, options)
 			if err != nil {
 				return nil, err
 			}
@@ -115,6 +116,35 @@ func validate(nodes []*parser.Node, filename string) (int, error) {
 	return firstFromLine, nil
 }
 
+// stagesWithProtectedRun returns the FROM instructions whose stage has a
+// network-enabled RUN. Only those stages get the CA, so scratch and distroless
+// stages that only COPY never need a shell. The CA step stays directly after
+// FROM so it runs as the base image user, before any USER instruction.
+func stagesWithProtectedRun(nodes []*parser.Node) map[*parser.Node]bool {
+	stages := make(map[*parser.Node]bool)
+	var stage *parser.Node
+	for _, node := range nodes {
+		switch strings.ToUpper(node.Value) {
+		case "FROM":
+			stage = node
+		case "RUN":
+			if stage != nil && !disablesNetwork(node) {
+				stages[stage] = true
+			}
+		}
+	}
+	return stages
+}
+
+func disablesNetwork(node *parser.Node) bool {
+	for _, flag := range node.Flags {
+		if flag == "--network=none" {
+			return true
+		}
+	}
+	return false
+}
+
 func rewritePreamble(lines []string) []string {
 	out := make([]string, 0, len(lines)+1)
 	out = append(out, "# syntax="+DelegatedSyntax)
@@ -127,12 +157,13 @@ func rewritePreamble(lines []string) []string {
 	return out
 }
 
-func transformRun(line, filename string, options Options) (string, error) {
+func transformRun(node *parser.Node, filename string, options Options) (string, error) {
+	line := node.Original
 	match := runPattern.FindStringSubmatch(line)
 	if match == nil {
 		return "", fmt.Errorf("%s: unsupported RUN instruction %q", filename, line)
 	}
-	if strings.Contains(strings.ToLower(match[2]), "--network=none") {
+	if disablesNetwork(node) {
 		return line, nil
 	}
 

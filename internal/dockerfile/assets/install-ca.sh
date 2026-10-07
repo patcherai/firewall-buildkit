@@ -27,27 +27,26 @@ if [ "$(id -u)" != 0 ]; then
   exit 1
 fi
 
+install_cert() {
+  mkdir -p "$1"
+  cp "$cert" "$1/depthfirst-firewall.crt"
+  chmod 0644 "$1/depthfirst-firewall.crt"
+}
+
 if command -v update-ca-certificates >/dev/null 2>&1; then
-  mkdir -p /usr/local/share/ca-certificates
-  cp "$cert" /usr/local/share/ca-certificates/depthfirst-firewall.crt
-  chmod 0644 /usr/local/share/ca-certificates/depthfirst-firewall.crt
+  install_cert /usr/local/share/ca-certificates
   update-ca-certificates >/dev/null
 elif command -v update-ca-trust >/dev/null 2>&1; then
-  mkdir -p /etc/pki/ca-trust/source/anchors
-  cp "$cert" /etc/pki/ca-trust/source/anchors/depthfirst-firewall.crt
-  chmod 0644 /etc/pki/ca-trust/source/anchors/depthfirst-firewall.crt
+  install_cert /etc/pki/ca-trust/source/anchors
   update-ca-trust extract >/dev/null
-elif [ -f /etc/ssl/certs/ca-certificates.crt ]; then
-  mkdir -p /usr/local/share/ca-certificates
-  cp "$cert" /usr/local/share/ca-certificates/depthfirst-firewall.crt
-  chmod 0644 /usr/local/share/ca-certificates/depthfirst-firewall.crt
-  cat "$cert" >> /etc/ssl/certs/ca-certificates.crt
-elif [ -f /etc/ssl/cert.pem ]; then
-  mkdir -p /usr/local/share/ca-certificates
-  cp "$cert" /usr/local/share/ca-certificates/depthfirst-firewall.crt
-  chmod 0644 /usr/local/share/ca-certificates/depthfirst-firewall.crt
-  cat "$cert" >> /etc/ssl/cert.pem
 else
-  echo "depthfirst: unsupported CA store; install ca-certificates in the base image" >&2
-  exit 1
+  # Slim images such as node:*-slim ship without ca-certificates. Node still
+  # finds the CA here through NODE_EXTRA_CA_CERTS, and update-ca-certificates
+  # adds it to the system bundle if a later RUN installs ca-certificates.
+  install_cert /usr/local/share/ca-certificates
+  if [ -f /etc/ssl/certs/ca-certificates.crt ]; then
+    cat "$cert" >> /etc/ssl/certs/ca-certificates.crt
+  elif [ -f /etc/ssl/cert.pem ]; then
+    cat "$cert" >> /etc/ssl/cert.pem
+  fi
 fi

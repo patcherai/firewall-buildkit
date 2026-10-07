@@ -58,7 +58,7 @@ The fingerprint opts the build into CA installation and busts cache when the CA 
 
 For each Linux stage the frontend can:
 
-- install the Device Firewall CA into Debian, Ubuntu, Alpine, and RHEL-family trust stores
+- install the Device Firewall CA into Debian, Ubuntu, Alpine, and RHEL-family trust stores. Images without `ca-certificates`, such as `node:*-slim`, get the CA for Node only; a later `apt-get install ca-certificates` adds it to the system bundle
 - expose that CA to Node, Python, uv, Ruby/Bundler, Git, and other OpenSSL clients on network-enabled `RUN`s
 - point these clients at Device Firewall registries for that `RUN`
 - keep the API key and generated client config off image layers by writing them on a per-`RUN` tmpfs
@@ -96,7 +96,7 @@ Existing user-level npmrc, Bundler config, `NODE_EXTRA_CA_CERTS`, and `SSL_CERT_
 - existing `RUN --mount`, `--network`, `--security`, and `--device` options
 - the stable Dockerfile 1.24.0 feature set
 
-The frontend fails closed for Windows stages, shell-less stages that need a CA or protected `RUN`, `RUN` heredocs, an unreadable CA store, and use of the reserved stage name `depthfirst_assets`. A `scratch` or distroless final stage without a `RUN` is usable in CI because no CA step is emitted unless the local CA fingerprint is supplied.
+The frontend fails closed for Windows stages, shell-less stages with a network-enabled `RUN`, `RUN` heredocs, and use of the reserved stage name `depthfirst_assets`. The CA is installed only in stages with a network-enabled `RUN`, so `scratch` and distroless stages that only `COPY` work in both CI and local builds.
 
 The API-key secret is visible to network-enabled `RUN` commands and their child processes, including package-manager lifecycle scripts. Registry URLs for pip, uv, Go, and RubyGems carry the key as HTTP Basic credentials for the lifetime of the step. Treat Dockerfiles and install scripts as trusted CI code, use a scoped firewall key, and do not print the environment or package-manager configuration.
 
